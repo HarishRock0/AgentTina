@@ -257,14 +257,25 @@ async def health():
 # ── Entry point ───────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     import socket
-    hostname = socket.gethostname()
-    local_ip = socket.gethostbyname(hostname)
+
+    def _get_network_ip():
+        """Return the IP address of the current active network interface."""
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            s.close()
+            return ip
+        except Exception:
+            return "127.0.0.1"
+
+    network_ip = _get_network_ip()
     print()
     print("╔══════════════════════════════════════════════════════════════╗")
     print("║               AgentTina — Network Server                    ║")
     print("╠══════════════════════════════════════════════════════════════╣")
     print(f"║  Local:   http://localhost:8000                              ║")
-    print(f"║  Network: http://{local_ip}:8000{' ' * (38 - len(local_ip))}║")
+    print(f"║  Network: http://{network_ip}:8000{' ' * (38 - len(network_ip))}║")
     print("╠══════════════════════════════════════════════════════════════╣")
     print("║  Share the Network URL with anyone on the same Wi-Fi/LAN.   ║")
     print("║  Press Ctrl+C to stop.                                      ║")
