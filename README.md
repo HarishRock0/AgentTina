@@ -1,5 +1,56 @@
 # AgentTina
 
+AgentTina is an AI-powered assistant with Gmail integration, file search, and a web UI, built with FastAPI and LangChain. It supports running locally or in Docker.
+
+## Features
+- LLM-powered chat (Groq, Llama-3)
+- Gmail OAuth2 email sending (with attachments)
+- File search in project directory
+- Web UI (FastAPI + HTML/JS)
+- CLI and server modes
+- Docker support
+
+## Quick Start (Local)
+1. Clone the repo and enter the directory.
+2. Install Python 3.10+ and pip.
+3. Install dependencies:
+  ```sh
+  pip install -r requirements.txt
+  ```
+4. Run setup:
+  ```sh
+  python setup.py
+  ```
+5. Start the server:
+  ```sh
+  python tina.py server
+  ```
+6. Open [http://localhost:8000](http://localhost:8000) in your browser.
+
+## Quick Start (Docker)
+1. Build the image:
+  ```sh
+  docker build -t agentina .
+  ```
+2. Run the container:
+  ```sh
+  docker run -p 8000:8000 agentina python tina.py server
+  ```
+3. Open [http://localhost:8000](http://localhost:8000) in your browser.
+
+## Environment & Credentials
+- Place your `credentials.json` (Google OAuth2) in the project root.
+- Run `python setup.py` to set up Gmail and LLM API keys.
+- Tokens (`token.json`, `gmail_token.pickle`) are generated after authentication.
+
+## Development
+- Main code: `tina.py`
+- Web UI: served at `/` (HTML/JS in Python string)
+- API: `/ask` (POST), `/health` (GET)
+
+## License
+MIT
+
 AgentTina is an open-source AI agent built with [LangChain](https://www.langchain.com/), [LangGraph](https://www.langgraph.com/), and [Groq](https://groq.com/), powered by the `llama-3.3-70b-versatile` model.
 
 ## License

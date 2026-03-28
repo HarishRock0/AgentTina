@@ -20,7 +20,7 @@ import uvicorn
 
 from langchain_groq import ChatGroq
 from langchain_core.tools import tool
-from langgraph.prebuilt import create_react_agent
+from langchain.agents import create_agent
 from google.auth.transport.requests import Request as GoogleRequest
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
@@ -146,7 +146,7 @@ def manage_calendar(event_details: str) -> str:
 tools = [get_current_time, calculator, reverse_text, web_search,
          search_file, send_email, automate_task, manage_calendar]
 
-agent = create_react_agent(tina, tools)
+agent = create_agent(tina, tools)
 
 # FastAPI app
 app = FastAPI(title="AgentTina", description="Tina AI assistant — local network API")
@@ -185,9 +185,9 @@ CHAT_HTML = """<!DOCTYPE html>
 <header>🤖 AgentTina</header>
 <div id=\"chat\"></div>
 <form id=\"form\">
-  <input id=\"inp\" type=\"text\" placeholder=\"Ask Tina anything…\" autocomplete=\"off\" autofocus/>
-  <button id=\"btn\" type=\"submit\">Send</button>
-</form
+    <input id=\"inp\" type=\"text\" placeholder=\"Ask Tina anything…\" autocomplete=\"off\" autofocus/>
+    <button id=\"btn\" type=\"submit\">Send</button>
+</form>
 <script>
 const chat = document.getElementById('chat');
 const inp  = document.getElementById('inp');
