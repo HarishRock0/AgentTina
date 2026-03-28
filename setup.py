@@ -21,7 +21,8 @@ def check_missing():
     required = ["API"]
     missing = [k for k in required if not os.getenv(k)]
     # Check for credentials.json
-    if not os.path.exists(os.path.join(os.path.dirname(os.path.abspath(__file__)), "credentials.json")):
+    cred_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "credentials.json")
+    if not os.path.exists(cred_path):
         missing.append("GOOGLE_OAUTH_CREDENTIALS_JSON")
     return missing
 
@@ -35,9 +36,20 @@ def prompt_groq() -> str | None:
     print("    2. Go to  API Keys  →  Create API Key")
     print("    3. Copy the key and paste it below.")
     print()
-    value = input("  Paste your GroqCloud API key: ").strip()
-    print()
-    return value or None
+    while True:
+        value = input("  Paste your GroqCloud API key: ").strip()
+        print()
+        # Basic validation: not empty, not code, not a Python statement
+        if not value:
+            print("  ⚠  API key cannot be empty. Please try again.")
+            continue
+        if value.startswith("if ") or value.startswith("for ") or value.startswith("def ") or value.startswith("import ") or "os.path" in value:
+            print("  ⚠  That doesn't look like an API key. Please paste only your GroqCloud API key.")
+            continue
+        if len(value) < 20 or " " in value:
+            print("  ⚠  That doesn't look like a valid API key. Please try again.")
+            continue
+        return value
 
 
 def prompt_google() -> dict:
@@ -142,11 +154,13 @@ def collect_and_save(missing: list):
     collected = {}
 
     if "API" in missing:
+        print("  LLM API key is required for operation.")
         val = prompt_groq()
         if val:
             collected["API"] = val
 
     if "GOOGLE_OAUTH_CREDENTIALS_JSON" in missing:
+        print("  Gmail OAuth2 credentials are required for sending emails.")
         prompt_google()
 
     if collected:
@@ -164,13 +178,32 @@ def run_setup(force_reset: bool = False):
     if not missing and not force_reset:
         print("  ✓ All credentials found.")
         print(f"    (stored in {ENV_FILE})\n")
-        # Check for credentials.json
         cred_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "credentials.json")
+        token_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "token.json")
         if not os.path.exists(cred_path):
             print("  ⚠  credentials.json is missing. Gmail sending will not work until you add it.")
             print("  See instructions above to download and place credentials.json in this folder.\n")
         else:
             print("  ✓ credentials.json found. Gmail sending is enabled.\n")
+            # If token.json does not exist, trigger authentication
+            if not os.path.exists(token_path):
+                print("  Gmail authentication not yet completed. Launching authentication flow...")
+                try:
+                    from google_auth_oauthlib.flow import InstalledAppFlow
+                    SCOPES = ['https://www.googleapis.com/auth/gmail.send']
+                    flow = InstalledAppFlow.from_client_secrets_file(cred_path, SCOPES)
+                    creds = flow.run_local_server(port=0)
+                    with open(token_path, 'w') as token:
+                        token.write(creds.to_json())
+                    print("  ✓ Gmail authentication complete. token.json saved.")
+                except Exception as e:
+                    print(f"  ⚠  Error during Gmail authentication: {e}")
+                    print("  Please ensure google-auth-oauthlib is installed and credentials.json is valid.")
+        # Check for LLM API key
+        if not os.getenv("API"):
+            print("  ⚠  LLM API key is missing. Please provide it in the .env file.")
+        else:
+            print("  ✓ LLM API key found.\n")
         print("  Options:")
         print("    [1] Reset / update a specific key")
         print("    [2] Exit")

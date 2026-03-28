@@ -6,6 +6,9 @@ import base64
 from pathlib import Path
 from datetime import datetime
 from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from email.mime.base import MIMEBase
+from email import encoders
 import dotenv
 
 dotenv.load_dotenv(override=True)
@@ -23,7 +26,7 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 
 # Validate required env vars
-REQUIRED = ["API", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]
+REQUIRED = ["API"]
 missing = [k for k in REQUIRED if not os.getenv(k)]
 if missing:
     raise EnvironmentError(
@@ -38,29 +41,25 @@ tina = ChatGroq(model=LLM, api_key=os.getenv("API"), temperature=0.7)
 # Gmail OAuth2
 GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.send"]
 TOKEN_FILE = Path(__file__).parent / "gmail_token.pickle"
+CREDS_FILE = Path(__file__).parent / "credentials.json"
 
 def _get_gmail_service():
     creds = None
     if TOKEN_FILE.exists():
         with open(TOKEN_FILE, "rb") as f:
             creds = pickle.load(f)
+    # Only refresh if possible, never launch browser
     if not creds or not creds.valid:
+        from google.auth.transport.requests import Request as GoogleRequest
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(GoogleRequest())
+            with open(TOKEN_FILE, "wb") as f:
+                pickle.dump(creds, f)
         else:
-            client_config = {
-                "installed": {
-                    "client_id": os.getenv("GOOGLE_CLIENT_ID"),
-                    "client_secret": os.getenv("GOOGLE_CLIENT_SECRET"),
-                    "redirect_uris": ["urn:ietf:wg:oauth:2.0:oob", "http://localhost"],
-                    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                    "token_uri": "https://oauth2.googleapis.com/token",
-                }
-            }
-            flow = InstalledAppFlow.from_client_config(client_config, GMAIL_SCOPES)
-            creds = flow.run_local_server(port=0)
-        with open(TOKEN_FILE, "wb") as f:
-            pickle.dump(creds, f)
+            # Do not launch OAuth2 flow in non-interactive/server mode
+            raise RuntimeError(
+                "Gmail is not authenticated. Please run setup.py and complete Gmail authentication in an interactive environment."
+            )
     return build("gmail", "v1", credentials=creds)
 
 # Tools
@@ -101,14 +100,34 @@ def reverse_text(text: str) -> str:
     return text[::-1]
 
 @tool
-def send_email(recipient: str, subject: str, body: str) -> str:
-    """Sends a real email via Gmail using your Google OAuth2 credentials."""
+def send_email(recipient: str, subject: str, body: str, attachment_path: str = None) -> str:
+    """Sends a real email via Gmail using your Google OAuth2 credentials. Optionally attaches a file."""
     try:
         service = _get_gmail_service()
-        message = MIMEText(body)
-        message["to"] = recipient
-        message["subject"] = subject
-        raw = base64.urlsafe_b64encode(message.as_bytes()).decode()
+        if attachment_path:
+            msg = MIMEMultipart()
+            msg["to"] = recipient
+            msg["subject"] = subject
+            msg.attach(MIMEText(body, "plain"))
+            # Attach file
+            file_path = Path(attachment_path)
+            if not file_path.exists():
+                return f"Attachment file not found: {attachment_path}"
+            with open(file_path, "rb") as f:
+                part = MIMEBase("application", "octet-stream")
+                part.set_payload(f.read())
+            encoders.encode_base64(part)
+            part.add_header(
+                "Content-Disposition",
+                f"attachment; filename={file_path.name}",
+            )
+            msg.attach(part)
+            raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
+        else:
+            message = MIMEText(body)
+            message["to"] = recipient
+            message["subject"] = subject
+            raw = base64.urlsafe_b64encode(message.as_bytes()).decode()
         service.users().messages().send(userId="me", body={"raw": raw}).execute()
         return f"Email successfully sent to {recipient} with subject '{subject}'."
     except Exception as e:
