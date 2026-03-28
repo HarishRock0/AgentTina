@@ -11,11 +11,19 @@ def print_banner():
     print("║              Welcome to AgentTina — Setup Wizard             ║")
     print("╚═══════════════════════════════════════════════════════════════╝")
     print()
+    print("  Gmail sending now uses Google OAuth2 authentication.")
+    print("  You only need to authenticate with your Gmail account once.")
+    print("  Make sure credentials.json is present in this folder.")
+    print()
 
 
 def check_missing():
-    required = ["API", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]
-    return [k for k in required if not os.getenv(k)]
+    required = ["API"]
+    missing = [k for k in required if not os.getenv(k)]
+    # Check for credentials.json
+    if not os.path.exists(os.path.join(os.path.dirname(os.path.abspath(__file__)), "credentials.json")):
+        missing.append("GOOGLE_OAUTH_CREDENTIALS_JSON")
+    return missing
 
 
 def prompt_groq() -> str | None:
@@ -36,26 +44,18 @@ def prompt_google() -> dict:
     print("─" * 65)
     print("  [2] Google Cloud Console — OAuth2 Credentials")
     print("─" * 65)
-    print("  ⚠  Each user MUST create their OWN Google Cloud project.")
-    print("     Never share or commit your Client ID / Secret.\n")
+    print("  To enable Gmail sending, you must download credentials.json from your Google Cloud Console.")
     print("  Steps:")
     print("    1. Go to  https://console.cloud.google.com/")
     print("    2. Create a NEW project  (e.g. 'AgentTina-yourname')")
-    print("    3. Enable these APIs in  APIs & Services → Library:")
-    print("         • Gmail API              (used by send_email tool)")
-    print("         • Google Calendar API    (used by manage_calendar tool)")
+    print("    3. Enable the Gmail API in  APIs & Services → Library")
     print("    4. Go to  APIs & Services → Credentials")
     print("    5. Click  Create Credentials → OAuth 2.0 Client ID")
     print("    6. Choose  Application type: Desktop App  → Create")
-    print("    7. Copy the Client ID and Client Secret shown.")
+    print("    7. Download the credentials.json file and place it in this folder.")
     print()
-    client_id     = input("  Paste your Google Client ID:     ").strip()
-    client_secret = input("  Paste your Google Client Secret: ").strip()
-    print()
-    return {
-        "GOOGLE_CLIENT_ID": client_id or None,
-        "GOOGLE_CLIENT_SECRET": client_secret or None,
-    }
+    input("  Press Enter after you have placed credentials.json in this folder...")
+    return {}
 
 
 def save_to_env(values: dict):
@@ -146,9 +146,8 @@ def collect_and_save(missing: list):
         if val:
             collected["API"] = val
 
-    if "GOOGLE_CLIENT_ID" in missing or "GOOGLE_CLIENT_SECRET" in missing:
-        google_vals = prompt_google()
-        collected.update({k: v for k, v in google_vals.items() if v})
+    if "GOOGLE_OAUTH_CREDENTIALS_JSON" in missing:
+        prompt_google()
 
     if collected:
         save_to_env(collected)
@@ -165,6 +164,13 @@ def run_setup(force_reset: bool = False):
     if not missing and not force_reset:
         print("  ✓ All credentials found.")
         print(f"    (stored in {ENV_FILE})\n")
+        # Check for credentials.json
+        cred_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "credentials.json")
+        if not os.path.exists(cred_path):
+            print("  ⚠  credentials.json is missing. Gmail sending will not work until you add it.")
+            print("  See instructions above to download and place credentials.json in this folder.\n")
+        else:
+            print("  ✓ credentials.json found. Gmail sending is enabled.\n")
         print("  Options:")
         print("    [1] Reset / update a specific key")
         print("    [2] Exit")
@@ -202,6 +208,12 @@ def run_setup(force_reset: bool = False):
 
     print("  ✓ All credentials set! You're ready to use AgentTina.")
     print()
+    cred_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "credentials.json")
+    if not os.path.exists(cred_path):
+        print("  ⚠  credentials.json is missing. Gmail sending will not work until you add it.")
+        print("  See instructions above to download and place credentials.json in this folder.\n")
+    else:
+        print("  ✓ credentials.json found. Gmail sending is enabled.\n")
     return True
 
 

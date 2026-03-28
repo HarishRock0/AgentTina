@@ -1,2 +1,4 @@
 .env
 gmail_token.pickle
+token.json
+credentials.json
