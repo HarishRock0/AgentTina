@@ -1,9 +1,9 @@
 # AgentTina
 
-AgentTina is an AI-powered assistant with Gmail integration, file search, and a web UI, built with FastAPI and LangChain. It supports running locally or in Docker.
+AgentTina is an AI-powered assistant with Gmail integration, file search, and a web UI, built with FastAPI, LangChain, and LangGraph. It supports running locally or in Docker.
 
 ## Features
-- LLM-powered chat (Groq, Llama-3)
+- LLM-powered chat with provider switching (Groq cloud API or local Ollama)
 - Gmail OAuth2 email sending (with attachments)
 - File search in project directory
 - Web UI (FastAPI + HTML/JS)
@@ -41,17 +41,21 @@ AgentTina is an AI-powered assistant with Gmail integration, file search, and a 
 ## Environment & Credentials
 - Place your `credentials.json` (Google OAuth2) in the project root.
 - Run `python setup.py` to set up Gmail and LLM API keys.
+- Setup now lets you choose your LLM provider:
+  - `groq` (requires `API` key)
+  - `ollama` (local model via `OLLAMA_MODEL` and `OLLAMA_BASE_URL`)
 - Tokens (`token.json`, `gmail_token.pickle`) are generated after authentication.
 
 ## Development
 - Main code: `tina.py`
+- Runtime orchestration: LangGraph state graph with tool-routing and checkpointed sessions.
 - Web UI: served at `/` (HTML/JS in Python string)
-- API: `/ask` (POST), `/health` (GET)
+- API: `/ask` (POST, accepts optional `session_id`), `/health` (GET)
 
 ## License
 MIT
 
-AgentTina is an open-source AI agent built with [LangChain](https://www.langchain.com/), [LangGraph](https://www.langgraph.com/), and [Groq](https://groq.com/), powered by the `llama-3.3-70b-versatile` model.
+AgentTina is an open-source AI agent built with [LangChain](https://www.langchain.com/) and [LangGraph](https://www.langgraph.com/), with support for both [Groq](https://groq.com/) and local [Ollama](https://ollama.com/) models.
 
 ## License
 
@@ -77,7 +81,7 @@ This project is open-source and freely available for anyone to use, modify, and 
 Install all required Python packages:
 
 ```
-pip install langchain-groq langgraph langchain-core python-dotenv \
+pip install langchain-groq langchain-ollama langgraph langchain-core python-dotenv \
             google-auth google-auth-oauthlib google-auth-httplib2 google-api-python-client
 ```
 

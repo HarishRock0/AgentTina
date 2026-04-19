@@ -5,6 +5,7 @@ import pickle
 import base64
 from pathlib import Path
 from datetime import datetime
+from typing import Annotated
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
@@ -19,24 +20,36 @@ from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
 from langchain_groq import ChatGroq
+from langchain_ollama import ChatOllama
 from langchain_core.tools import tool
-from langchain.agents import create_agent
-from google.auth.transport.requests import Request as GoogleRequest
-from google_auth_oauthlib.flow import InstalledAppFlow
+from langchain_core.messages import AIMessage, HumanMessage
+from langgraph.graph import END, START, StateGraph
+from langgraph.graph.message import add_messages
+from langgraph.checkpoint.memory import MemorySaver
+from langgraph.prebuilt import ToolNode, tools_condition
 from googleapiclient.discovery import build
+from typing_extensions import TypedDict
 
-# Validate required env vars
-REQUIRED = ["API"]
-missing = [k for k in REQUIRED if not os.getenv(k)]
-if missing:
-    raise EnvironmentError(
-        f"Missing credentials: {', '.join(missing)}\n"
-        "Run 'python setup.py' first, then restart this server."
-    )
+def _build_llm():
+    provider = os.getenv("LLM_PROVIDER", "groq").strip().lower()
+    if provider == "ollama":
+        model = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
+        base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+        llm = ChatOllama(model=model, base_url=base_url, temperature=0.7)
+        return llm, model, provider
 
-# LLM setup
-LLM = "llama-3.3-70b-versatile"
-tina = ChatGroq(model=LLM, api_key=os.getenv("API"), temperature=0.7)
+    api_key = os.getenv("API")
+    if not api_key:
+        raise EnvironmentError(
+            "Missing credentials: API\n"
+            "Run 'python setup.py' first, then restart this server."
+        )
+    model = "llama-3.3-70b-versatile"
+    llm = ChatGroq(model=model, api_key=api_key, temperature=0.7)
+    return llm, model, "groq"
+
+
+tina, LLM, LLM_PROVIDER = _build_llm()
 
 # Gmail OAuth2
 GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.send"]
@@ -146,7 +159,27 @@ def manage_calendar(event_details: str) -> str:
 tools = [get_current_time, calculator, reverse_text, web_search,
          search_file, send_email, automate_task, manage_calendar]
 
-agent = create_agent(tina, tools)
+
+class AgentState(TypedDict):
+    messages: Annotated[list, add_messages]
+
+
+tool_node = ToolNode(tools)
+model_with_tools = tina.bind_tools(tools)
+
+
+def chatbot_node(state: AgentState):
+    return {"messages": [model_with_tools.invoke(state["messages"])]}
+
+
+graph_builder = StateGraph(AgentState)
+graph_builder.add_node("chatbot", chatbot_node)
+graph_builder.add_node("tools", tool_node)
+graph_builder.add_edge(START, "chatbot")
+graph_builder.add_conditional_edges("chatbot", tools_condition)
+graph_builder.add_edge("tools", "chatbot")
+checkpointer = MemorySaver()
+agent_graph = graph_builder.compile(checkpointer=checkpointer)
 
 # FastAPI app
 app = FastAPI(title="AgentTina", description="Tina AI assistant — local network API")
@@ -237,57 +270,43 @@ async def index():
 async def ask(request: Request):
     body = await request.json()
     question = body.get("question", "").strip()
+    session_id = body.get("session_id", "web-default")
     if not question:
         return JSONResponse({"error": "No question provided."}, status_code=400)
     try:
-        answer = ask_tina(question)
-        return {"answer": answer}
+        answer = ask_tina(question, session_id=session_id)
+        return {"answer": answer, "session_id": session_id}
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "model": LLM}
+    return {"status": "ok", "model": LLM, "provider": LLM_PROVIDER}
 
-def ask_tina(question: str) -> str:
-    result = agent.invoke({"messages": [{"role": "user", "content": question}]})
-    return result["messages"][-1].content
+
+def ask_tina(question: str, session_id: str = "cli-default") -> str:
+    result = agent_graph.invoke(
+        {"messages": [HumanMessage(content=question)]},
+        config={"configurable": {"thread_id": session_id}},
+    )
+    messages = result.get("messages", [])
+    for msg in reversed(messages):
+        if isinstance(msg, AIMessage):
+            return str(msg.content)
+    return "No response generated."
 
 def start_server():
-    import socket
-    def _get_network_ip():
-        try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.connect(("8.8.8.8", 80))
-            ip = s.getsockname()[0]
-            s.close()
-            return ip
-        except Exception:
-            return "127.0.0.1"
-    network_ip = _get_network_ip()
     print()
     print("╔══════════════════════════════════════════════════════════════╗")
-    print("║               AgentTina — Network Server                    ║")
+    print("║               AgentTina — Localhost Server                  ║")
     print("╠══════════════════════════════════════════════════════════════╣")
     print(f"║  Local:   http://localhost:8000                              ║")
-    print(f"║  Network: http://{network_ip}:8000{' ' * (38 - len(network_ip))}║")
     print("╠══════════════════════════════════════════════════════════════╣")
-    print("║  Share the Network URL with anyone on the same Wi-Fi/LAN.   ║")
+    print("║  Access is restricted to this machine via localhost only.   ║")
     print("║  Press Ctrl+C to stop.                                      ║")
     print("╚══════════════════════════════════════════════════════════════╝")
     print()
-    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="warning")
+    uvicorn.run(app, host="127.0.0.1", port=8000, log_level="warning")
 
 if __name__ == "__main__":
-    import sys
-    if len(sys.argv) > 1 and sys.argv[1] == "server":
-        start_server()
-    else:
-        print("Tina CLI mode. Type your questions below. Type 'exit' or 'quit' to stop.")
-        while True:
-            user_input = input("Ask Tina: ")
-            if user_input.lower() in ["exit", "quit"]:
-                print("Goodbye!")
-                break
-            response = ask_tina(user_input)
-            print(f"Tina: {response}")
+    start_server()

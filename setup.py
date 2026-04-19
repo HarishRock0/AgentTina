@@ -2,251 +2,177 @@ import os
 import sys
 import dotenv
 
+
 dotenv.load_dotenv()
 
 ENV_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+
+
 def print_banner():
     print()
     print("╔═══════════════════════════════════════════════════════════════╗")
     print("║              Welcome to AgentTina — Setup Wizard             ║")
     print("╚═══════════════════════════════════════════════════════════════╝")
     print()
-    print("  Gmail sending now uses Google OAuth2 authentication.")
-    print("  You only need to authenticate with your Gmail account once.")
-    print("  Make sure credentials.json is present in this folder.")
+    print("  Configure your LLM provider and Gmail OAuth2 integration.")
+    print("  Make sure credentials.json is present in this folder for Gmail.")
     print()
-
-
-def check_missing():
-    required = ["API"]
-    missing = [k for k in required if not os.getenv(k)]
-    # Check for credentials.json
-    cred_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "credentials.json")
-    if not os.path.exists(cred_path):
-        missing.append("GOOGLE_OAUTH_CREDENTIALS_JSON")
-    return missing
-
-
-def prompt_groq() -> str | None:
-    print("─" * 65)
-    print("  [1] GroqCloud API Key")
-    print("─" * 65)
-    print("  How to get yours:")
-    print("    1. Sign up / log in at  https://console.groq.com")
-    print("    2. Go to  API Keys  →  Create API Key")
-    print("    3. Copy the key and paste it below.")
-    print()
-    while True:
-        value = input("  Paste your GroqCloud API key: ").strip()
-        print()
-        # Basic validation: not empty, not code, not a Python statement
-        if not value:
-            print("  ⚠  API key cannot be empty. Please try again.")
-            continue
-        if value.startswith("if ") or value.startswith("for ") or value.startswith("def ") or value.startswith("import ") or "os.path" in value:
-            print("  ⚠  That doesn't look like an API key. Please paste only your GroqCloud API key.")
-            continue
-        if len(value) < 20 or " " in value:
-            print("  ⚠  That doesn't look like a valid API key. Please try again.")
-            continue
-        return value
-
-
-def prompt_google() -> dict:
-    print("─" * 65)
-    print("  [2] Google Cloud Console — OAuth2 Credentials")
-    print("─" * 65)
-    print("  To enable Gmail sending, you must download credentials.json from your Google Cloud Console.")
-    print("  Steps:")
-    print("    1. Go to  https://console.cloud.google.com/")
-    print("    2. Create a NEW project  (e.g. 'AgentTina-yourname')")
-    print("    3. Enable the Gmail API in  APIs & Services → Library")
-    print("    4. Go to  APIs & Services → Credentials")
-    print("    5. Click  Create Credentials → OAuth 2.0 Client ID")
-    print("    6. Choose  Application type: Desktop App  → Create")
-    print("    7. Download the credentials.json file and place it in this folder.")
-    print()
-    input("  Press Enter after you have placed credentials.json in this folder...")
-    return {}
 
 
 def save_to_env(values: dict):
-    """Write key=value pairs to .env, updating existing keys or appending new ones."""
-    # Read existing lines
     existing = {}
     lines = []
     if os.path.exists(ENV_FILE):
-        with open(ENV_FILE, "r") as f:
+        with open(ENV_FILE, "r", encoding="utf-8") as f:
             lines = f.readlines()
         for line in lines:
             if "=" in line and not line.startswith("#"):
                 k, _, _ = line.partition("=")
                 existing[k.strip()] = line
 
-    # Update or append
     for k, v in values.items():
         if v is None:
             continue
         new_line = f"{k}={v}\n"
         if k in existing:
-            lines = [new_line if (l.startswith(k + "=")) else l for l in lines]
+            lines = [new_line if l.startswith(k + "=") else l for l in lines]
         else:
             lines.append(new_line)
 
-    with open(ENV_FILE, "w") as f:
+    with open(ENV_FILE, "w", encoding="utf-8") as f:
         f.writelines(lines)
 
     dotenv.load_dotenv(ENV_FILE, override=True)
 
 
-def reset_keys(keys: list):
-    """Clear specified keys from .env and re-prompt for them."""
-    if not os.path.exists(ENV_FILE):
-        print("  ⚠  No .env file found. Nothing to reset.")
-        print()
-        return
-
-    with open(ENV_FILE, "r") as f:
-        lines = f.readlines()
-
-    # Remove the selected keys
-    lines = [l for l in lines if not any(l.startswith(k + "=") for k in keys)]
-
-    with open(ENV_FILE, "w") as f:
-        f.writelines(lines)
-
-    # Clear from current environment so check_missing picks them up
-    for k in keys:
-        os.environ.pop(k, None)
-
-    print()
-    print("  ✓ Key(s) cleared:", ", ".join(keys))
+def prompt_provider(default_provider: str) -> str:
+    print("─" * 65)
+    print("  LLM Provider")
+    print("─" * 65)
+    print(f"  Current/default provider: {default_provider}")
+    print("  [1] Groq (cloud API)")
+    print("  [2] Ollama (local model, no API calls)")
     print()
 
-
-def reset_menu():
-    """Interactive menu to choose which keys to reset."""
-    print("  Which credentials do you want to reset?\n")
-    print("    [1] GroqCloud API Key  (API)")
-    print("    [2] Google OAuth2 credentials  (GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET)")
-    print("    [3] All of the above")
-    print("    [0] Cancel")
-    print()
-    choice = input("  Enter choice: ").strip()
-    print()
-
-    if choice == "1":
-        reset_keys(["API"])
-        return ["API"]
-    elif choice == "2":
-        reset_keys(["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"])
-        return ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]
-    elif choice == "3":
-        reset_keys(["API", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"])
-        return ["API", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]
-    else:
-        print("  Cancelled. No changes made.")
-        print()
-        return []
-
-
-def collect_and_save(missing: list):
-    collected = {}
-
-    if "API" in missing:
-        print("  LLM API key is required for operation.")
-        val = prompt_groq()
-        if val:
-            collected["API"] = val
-
-    if "GOOGLE_OAUTH_CREDENTIALS_JSON" in missing:
-        print("  Gmail OAuth2 credentials are required for sending emails.")
-        prompt_google()
-
-    if collected:
-        save_to_env(collected)
-        print("  ✓ Credentials saved to .env\n")
-    else:
-        print("  ⚠  No values entered.")
-        print(f"     You can manually edit: {ENV_FILE}\n")
-
-
-def run_setup(force_reset: bool = False):
-    print_banner()
-    missing = check_missing()
-
-    if not missing and not force_reset:
-        print("  ✓ All credentials found.")
-        print(f"    (stored in {ENV_FILE})\n")
-        cred_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "credentials.json")
-        token_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "token.json")
-        if not os.path.exists(cred_path):
-            print("  ⚠  credentials.json is missing. Gmail sending will not work until you add it.")
-            print("  See instructions above to download and place credentials.json in this folder.\n")
-        else:
-            print("  ✓ credentials.json found. Gmail sending is enabled.\n")
-            # If token.json does not exist, trigger authentication
-            if not os.path.exists(token_path):
-                print("  Gmail authentication not yet completed. Launching authentication flow...")
-                try:
-                    from google_auth_oauthlib.flow import InstalledAppFlow
-                    SCOPES = ['https://www.googleapis.com/auth/gmail.send']
-                    flow = InstalledAppFlow.from_client_secrets_file(cred_path, SCOPES)
-                    creds = flow.run_local_server(port=0)
-                    with open(token_path, 'w') as token:
-                        token.write(creds.to_json())
-                    print("  ✓ Gmail authentication complete. token.json saved.")
-                except Exception as e:
-                    print(f"  ⚠  Error during Gmail authentication: {e}")
-                    print("  Please ensure google-auth-oauthlib is installed and credentials.json is valid.")
-        # Check for LLM API key
-        if not os.getenv("API"):
-            print("  ⚠  LLM API key is missing. Please provide it in the .env file.")
-        else:
-            print("  ✓ LLM API key found.\n")
-        print("  Options:")
-        print("    [1] Reset / update a specific key")
-        print("    [2] Exit")
-        print()
-        choice = input("  Enter choice: ").strip()
-        print()
+    while True:
+        choice = input("  Select provider [1/2]: ").strip()
         if choice == "1":
-            reset_menu()
-            missing = check_missing()
-            if missing:
-                collect_and_save(missing)
-        else:
-            return True
-    elif force_reset:
-        reset_menu()
-        missing = check_missing()
-        if missing:
-            collect_and_save(missing)
-    else:
-        print("  SETUP REQUIRED — the following credentials are missing:\n")
-        for k in missing:
-            print(f"    ✗  {k}")
-        print()
-        collect_and_save(missing)
+            print()
+            return "groq"
+        if choice == "2":
+            print()
+            return "ollama"
+        print("  ⚠  Please enter 1 or 2.")
 
-    still_missing = check_missing()
-    if still_missing:
-        print("  ⚠  Some credentials are still missing:")
-        for k in still_missing:
-            print(f"     ✗  {k}")
+
+def prompt_groq_api_key() -> str:
+    print("─" * 65)
+    print("  GroqCloud API Key")
+    print("─" * 65)
+    print("  How to get yours:")
+    print("    1. Sign up / log in at https://console.groq.com")
+    print("    2. Go to API Keys and create a key")
+    print("    3. Paste it below")
+    print()
+
+    while True:
+        value = input("  Paste your GroqCloud API key: ").strip()
         print()
-        print("  Re-run  python setup.py  once you have them.")
+        if not value:
+            print("  ⚠  API key cannot be empty.")
+            continue
+        if " " in value or len(value) < 20:
+            print("  ⚠  That does not look like a valid key. Try again.")
+            continue
+        return value
+
+
+def prompt_ollama_settings(existing_model: str, existing_base_url: str) -> tuple[str, str]:
+    print("─" * 65)
+    print("  Ollama Local Settings")
+    print("─" * 65)
+    print("  Make sure Ollama is installed and running locally.")
+    print("  Example: ollama serve")
+    print()
+
+    model = input(f"  Ollama model [{existing_model}]: ").strip() or existing_model
+    base_url = input(f"  Ollama base URL [{existing_base_url}]: ").strip() or existing_base_url
+    print()
+    return model, base_url
+
+
+def ensure_google_credentials_file() -> bool:
+    cred_path = os.path.join(PROJECT_ROOT, "credentials.json")
+    if os.path.exists(cred_path):
+        print("  ✓ credentials.json found. Gmail sending can be enabled.")
+        print()
+        return True
+
+    print("  ⚠  credentials.json is missing. Gmail sending will not work until you add it.")
+    print("  Steps:")
+    print("    1. Open https://console.cloud.google.com/")
+    print("    2. Create/select a project")
+    print("    3. Enable Gmail API")
+    print("    4. Create OAuth 2.0 Desktop App credentials")
+    print("    5. Download and place credentials.json in this folder")
+    print()
+    return False
+
+
+def summarize_config():
+    provider = os.getenv("LLM_PROVIDER", "groq").strip().lower()
+    print("  Active configuration:")
+    print(f"    LLM_PROVIDER={provider}")
+    if provider == "groq":
+        api_set = "yes" if os.getenv("API") else "no"
+        print(f"    API configured: {api_set}")
+    else:
+        print(f"    OLLAMA_MODEL={os.getenv('OLLAMA_MODEL', 'llama3.2:3b')}")
+        print(f"    OLLAMA_BASE_URL={os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434')}")
+    print()
+
+
+def run_setup(force_reset: bool = False) -> bool:
+    print_banner()
+
+    default_provider = os.getenv("LLM_PROVIDER", "groq").strip().lower()
+    if default_provider not in ("groq", "ollama"):
+        default_provider = "groq"
+
+    if not force_reset:
+        summarize_config()
+
+    provider = prompt_provider(default_provider)
+
+    values = {"LLM_PROVIDER": provider}
+
+    if provider == "groq":
+        if force_reset or not os.getenv("API") or default_provider != "groq":
+            values["API"] = prompt_groq_api_key()
+    else:
+        existing_model = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
+        existing_base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+        model, base_url = prompt_ollama_settings(existing_model, existing_base_url)
+        values["OLLAMA_MODEL"] = model
+        values["OLLAMA_BASE_URL"] = base_url
+
+    save_to_env(values)
+
+    if provider == "groq" and not os.getenv("API"):
+        print("  ✗ Missing API key for Groq provider.")
+        print("  Re-run python setup.py and provide a valid key.")
         print()
         return False
 
-    print("  ✓ All credentials set! You're ready to use AgentTina.")
+    ensure_google_credentials_file()
+
+    print("  ✓ Setup complete. Configuration saved to .env")
     print()
-    cred_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "credentials.json")
-    if not os.path.exists(cred_path):
-        print("  ⚠  credentials.json is missing. Gmail sending will not work until you add it.")
-        print("  See instructions above to download and place credentials.json in this folder.\n")
-    else:
-        print("  ✓ credentials.json found. Gmail sending is enabled.\n")
+    print("  Next steps:")
+    print("    1. If using Gmail tools, run: python auth.py")
+    print("    2. Start server: python tina.py server")
+    print()
     return True
 
 
